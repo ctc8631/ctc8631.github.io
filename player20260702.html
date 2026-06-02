@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Video Player</title>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: black;
+
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    video {
+      width: 95vw;
+      height: 95vh;
+      object-fit: contain;
+      background: black;
+      cursor: pointer;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    #status {
+      position: fixed;
+      right: 20px;
+      bottom: 50px;
+
+      color: white;
+      background: rgba(0, 0, 0, 0.5);
+
+      padding: 4px 8px;
+      border-radius: 4px;
+
+      font-family: monospace;
+      font-size: 14px;
+
+      z-index: 1000;
+      user-select: none;
+    }
+
+    #timeline-container {
+      position: fixed;
+      left: 50%;
+      bottom: 15px;
+
+      transform: translateX(-50%);
+
+      width: 90vw;
+      z-index: 1000;
+    }
+
+    #timeline {
+      width: 100%;
+      margin: 0;
+    }
+  </style>
+</head>
+
+<body>
+
+<video id="video"></video>
+
+<input type="file" id="fileInput" accept="video/*">
+
+<div id="status">
+  00:00:00 / 00:00:00
+</div>
+
+<div id="timeline-container">
+  <input type="range" id="timeline" min="0" max="1000" value="0">
+</div>
+
+<script>
+  const v = document.getElementById('video');
+  const fileInput = document.getElementById('fileInput');
+  const status = document.getElementById('status');
+  const timeline = document.getElementById('timeline');
+
+  let isDraggingTimeline = false;
+
+  function formatTime(sec) {
+    if (!isFinite(sec))
+      return "00:00:00";
+
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+
+    return [h, m, s]
+      .map(x => x.toString().padStart(2, '0'))
+      .join(':');
+  }
+
+  function updateStatus() {
+    status.textContent =
+      `${formatTime(v.currentTime)} / ${formatTime(v.duration)}`;
+  }
+
+  document.addEventListener('keydown', (e) => {
+
+    if (document.activeElement.tagName === "INPUT")
+      return;
+
+    // ↓ 開啟影片
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      fileInput.click();
+      return;
+    }
+
+    // Space 播放/暫停
+    if (e.key === ' ') {
+      e.preventDefault();
+
+      if (v.paused)
+        v.play();
+      else
+        v.pause();
+
+      return;
+    }
+
+    // 快轉/倒轉
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+
+      let delta =
+        e.ctrlKey ? 60 :
+        e.shiftKey ? 10 :
+        3;
+
+      if (e.key === 'ArrowLeft')
+        v.currentTime -= delta;
+      else
+        v.currentTime += delta;
+
+      updateStatus();
+      return;
+    }
+  });
+
+  // 點影片播放/暫停
+  v.addEventListener('click', () => {
+    if (v.paused)
+      v.play();
+    else
+      v.pause();
+  });
+
+  // 選擇影片
+  fileInput.addEventListener('change', (e) => {
+
+    const file = e.target.files[0];
+
+    if (!file)
+      return;
+
+    if (v.src)
+      URL.revokeObjectURL(v.src);
+
+    const url = URL.createObjectURL(file);
+
+    v.src = url;
+    document.title = file.name;
+
+    v.play();
+  });
+
+  // 更新時間與進度條
+  v.addEventListener('timeupdate', () => {
+
+    updateStatus();
+
+    if (!isDraggingTimeline && v.duration) {
+      timeline.value =
+        Math.floor(v.currentTime / v.duration * 1000);
+    }
+  });
+
+  v.addEventListener('loadedmetadata', () => {
+    updateStatus();
+  });
+
+  v.addEventListener('play', updateStatus);
+  v.addEventListener('pause', updateStatus);
+
+  // 開始拖曳
+  timeline.addEventListener('mousedown', () => {
+    isDraggingTimeline = true;
+  });
+
+  // 拖曳時即時更新
+  timeline.addEventListener('input', () => {
+
+    if (!v.duration)
+      return;
+
+    v.currentTime =
+      (timeline.value / 1000) * v.duration;
+  });
+
+  // 放開滑鼠
+  timeline.addEventListener('mouseup', () => {
+    isDraggingTimeline = false;
+  });
+
+  updateStatus();
+</script>
+
+</body>
+</html>
