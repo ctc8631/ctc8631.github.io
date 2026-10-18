@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Spin Wheel</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Base page settings */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Thick grey outer ring */
+        .outer-ring {
+            border: 24px solid #808080;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.1), 0 8px 20px rgba(0,0,0,0.15);
+        }
+
+        /* Arrow smooth 2-second rotation transition */
+        .arrow-pointer {
+            transition: transform 2s cubic-bezier(0.1, 0.85, 0.25, 1);
+            transform-origin: center center;
+        }
+
+        /* GO button tap feedback */
+        .go-btn:active:not(:disabled) {
+            transform: translate(-50%, -50%) scale(0.92);
+        }
+
+        /* Target circle interactive styling */
+        .target-circle {
+            cursor: pointer;
+            transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+            pointer-events: auto;
+        }
+
+        .target-circle:hover {
+            transform: translate(-50%, -50%) scale(1.15);
+        }
+
+        .target-circle:active {
+            transform: translate(-50%, -50%) scale(0.95);
+        }
+
+        /* Selected yellow circle state */
+        .target-circle.selected {
+            border-color: #ca8a04 !important;
+            background-color: #facc15 !important;
+            box-shadow: 0 0 12px rgba(250, 204, 21, 0.9);
+        }
+
+        /* Winner pulse effect animation */
+        @keyframes pulse-ring {
+            0% { transform: translate(-50%, -50%) scale(1.2); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.9); }
+            70% { transform: translate(-50%, -50%) scale(1.55); box-shadow: 0 0 0 16px rgba(239, 68, 68, 0); }
+            100% { transform: translate(-50%, -50%) scale(1.2); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        .target-circle.winner {
+            border-color: #991b1b !important;
+            background-color: #ef4444 !important;
+            animation: pulse-ring 1s infinite;
+            z-index: 25;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen w-screen flex items-center justify-center p-4 overflow-hidden">
+
+    <!-- Main Spin Wheel Container (Perfectly centered on mobile/desktop screens) -->
+    <main class="relative w-full max-w-[340px] aspect-square flex items-center justify-center">
+        
+        <!-- Outer thick grey ring -->
+        <div id="wheelRing" class="outer-ring absolute inset-0 rounded-full bg-white flex items-center justify-center"></div>
+
+        <!-- Container for 6 small target circles -->
+        <div id="targetsContainer" class="absolute inset-0 z-10"></div>
+
+        <!-- Rotating arrow wrapper (Default pointer pointing up at 0 degrees) -->
+        <div id="arrowWrapper" class="arrow-pointer absolute w-full h-full pointer-events-none flex items-center justify-center z-20">
+            <!-- Black Arrow SVG -->
+            <svg class="w-full h-full drop-shadow-md" viewBox="0 0 300 300">
+                <!-- Arrow stem from center (150, 150) to (150, 48) -->
+                <line x1="150" y1="150" x2="150" y2="48" stroke="#000000" stroke-width="9" stroke-linecap="round" />
+                <!-- Arrow head with tip at (150, 15) -->
+                <polygon points="150,15 132,50 168,50" fill="#000000" stroke="#000000" stroke-width="2" stroke-linejoin="round" />
+            </svg>
+        </div>
+
+        <!-- Center Red GO Button -->
+        <button id="goBtn" class="go-btn absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-black text-3xl rounded-full shadow-lg border-4 border-red-500 flex items-center justify-center z-30 cursor-pointer transition-all duration-150 focus:outline-none">
+            GO
+        </button>
+
+    </main>
+
+    <!-- Web Audio API sound generator -->
+    <script>
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx;
+
+        function initAudio() {
+            if (!audioCtx) audioCtx = new AudioContext();
+        }
+
+        // Toggle sound for circle selection
+        function playToggleSound(isSelected) {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(isSelected ? 784 : 523, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.08);
+            } catch (e) {}
+        }
+
+        // Tick sound during spin
+        function playTickSound() {
+            if (!audioCtx) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.04);
+            } catch (e) {}
+        }
+
+        // Win sound when arrow lands
+        function playWinSound() {
+            if (!audioCtx) return;
+            try {
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now);       // C5
+                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(now + 0.5);
+            } catch (e) {}
+        }
+
+        // Application initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            const targetsContainer = document.getElementById('targetsContainer');
+            const arrowWrapper = document.getElementById('arrowWrapper');
+            const goBtn = document.getElementById('goBtn');
+
+            // Target angles in degrees: 0°, 60°, 120°, 180°, 240°, 300°
+            const angles = [0, 60, 120, 180, 240, 300];
+            const targetElements = [];
+            const selectedState = [false, false, false, false, false, false];
+
+            // Initial arrow rotation set to 45 degrees (pointing away from all circles)
+            let currentRotation = 45;
+            arrowWrapper.style.transform = `rotate(${currentRotation}deg)`;
+
+            // Generate and position the 6 small target circles on the grey ring
+            angles.forEach((angle, index) => {
+                const circle = document.createElement('div');
+                circle.className = 'target-circle absolute w-6 h-6 rounded-full border-2 border-gray-600 bg-gray-500/90 shadow-sm';
+                
+                // Calculate circle X, Y coordinates (0 degrees at top)
+                const rad = (angle - 90) * (Math.PI / 180);
+                const radiusPercent = 50 - (12 / 340 * 100); // Ring centerline radius ratio
+                
+                const left = 50 + radiusPercent * Math.cos(rad);
+                const top = 50 + radiusPercent * Math.sin(rad);
+
+                circle.style.left = `${left}%`;
+                circle.style.top = `${top}%`;
+                circle.style.transform = 'translate(-50%, -50%)';
+
+                // Click/tap handler to toggle yellow selection state
+                circle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (goBtn.disabled) return;
+                    
+                    initAudio();
+                    selectedState[index] = !selectedState[index];
+                    
+                    if (selectedState[index]) {
+                        circle.classList.add('selected');
+                    } else {
+                        circle.classList.remove('selected');
+                    }
+
+                    circle.classList.remove('winner');
+                    playToggleSound(selectedState[index]);
+                });
+
+                targetsContainer.appendChild(circle);
+                targetElements.push(circle);
+            });
+
+            // Start spin animation when GO button is tapped
+            goBtn.addEventListener('click', () => {
+                initAudio();
+
+                // Determine active candidates: use yellow circles if any exist, otherwise use all circles
+                let activeIndices = [];
+                selectedState.forEach((isSelected, idx) => {
+                    if (isSelected) activeIndices.push(idx);
+                });
+
+                if (activeIndices.length === 0) {
+                    activeIndices = [0, 1, 2, 3, 4, 5];
+                }
+
+                // Disable GO button during animation
+                goBtn.disabled = true;
+                goBtn.classList.add('opacity-80', 'cursor-not-allowed');
+                
+                // Reset winner animations
+                targetElements.forEach(el => el.classList.remove('winner'));
+
+                // Pick a random winner from active candidates
+                const chosenPoolIndex = Math.floor(Math.random() * activeIndices.length);
+                const selectedIndex = activeIndices[chosenPoolIndex];
+                const targetAngle = angles[selectedIndex];
+
+                // Calculate target rotation with extra full rotations (5 to 8 turns)
+                const extraSpins = (5 + Math.floor(Math.random() * 4)) * 360;
+                
+                const currentMod = currentRotation % 360;
+                let diff = targetAngle - currentMod;
+                if (diff <= 0) {
+                    diff += 360;
+                }
+
+                currentRotation += extraSpins + diff;
+
+                // Play rotation tick sound effects
+                let tickCount = 0;
+                const tickInterval = setInterval(() => {
+                    playTickSound();
+                    tickCount++;
+                    if (tickCount >= 12) clearInterval(tickInterval);
+                }, 150);
+
+                // Execute rotation animation over exactly 2 seconds
+                arrowWrapper.style.transform = `rotate(${currentRotation}deg)`;
+
+                // Handle spin completion after exactly 2 seconds
+                setTimeout(() => {
+                    goBtn.disabled = false;
+                    goBtn.classList.remove('opacity-80', 'cursor-not-allowed');
+
+                    // Highlight the winning target circle with pulse effect
+                    const winCircle = targetElements[selectedIndex];
+                    winCircle.classList.add('winner');
+
+                    playWinSound();
+
+                }, 2000); // 2000ms duration
+            });
+        });
+    </script>
+</body>
+</html>
